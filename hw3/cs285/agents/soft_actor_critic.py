@@ -144,24 +144,29 @@ class SoftActorCritic(nn.Module):
         assert (
             next_qs.ndim==2
         ), f"next_qs should have shape (num_critics, batch_size) but got {next_qs.shape}"
-        num_critic_networks, batch_size = next_qs.shape
-        assert num_critic_networks == self.num_critic_networks
 
+        num_critic_networks = next_qs.shape[0]
+        # print("num critic networks ", num_critic_networks)
+
+        assert num_critic_networks == self.num_critic_networks
+        # print(self.target_critic_backup_type)
         # TODO(student): Implement the different backup strategies.
         if self.target_critic_backup_type == "doubleq":
             next_qs = next_qs[::-1,:]
         elif self.target_critic_backup_type == "min":
-            next_qs = np.min(next_qs, axis=0)
+            next_qs = torch.min(next_qs, dim=0, keepdim=True)
         elif self.target_critic_backup_type == "mean":
-            next_qs = np.mean(next_qs, axis=0)
+            next_qs = torch.mean(next_qs, dim=0, keepdim=True)
         else:
             # Default, we don't need to do anything.
             pass
 
+        
 
         # If our backup strategy removed a dimension, add it back in explicitly
         # (assume the target for each critic will be the same)
-        
+        if next_qs.shape[0] < num_critic_networks:
+            next_qs = next_qs.repeat(num_critic_networks,1)
 
         return next_qs
 
@@ -187,12 +192,11 @@ class SoftActorCritic(nn.Module):
             next_action = next_action_distribution.sample()
 
             # Compute the next Q-values for the sampled actions
-            next_qs = np.array([critic(next_obs, next_action) for critic in self.target_critics])
+            next_qs = torch.stack([critic(next_obs, next_action) for critic in self.target_critics])
             # Handle Q-values from multiple different target critic networks (if necessary)
             # (For double-Q, clip-Q, etc.)
             next_qs = self.q_backup_strategy(next_qs)
-            assert(next_qs.ndim == 1)
-            next_qs = next_qs[0]
+            # print(next_qs.shape)
             # assert next_qs.shape == (
             #     self.num_critic_networks,
             #     batch_size,
@@ -242,6 +246,7 @@ class SoftActorCritic(nn.Module):
         return entropy
 
     def actor_loss_reinforce(self, obs: torch.Tensor):
+        # print('using reinforce')
         batch_size = obs.shape[0]
 
         # TODO(student): Generate an action distribution
@@ -283,6 +288,7 @@ class SoftActorCritic(nn.Module):
         return loss, torch.mean(self.entropy(action_distribution))
 
     def actor_loss_reparametrize(self, obs: torch.Tensor):
+        # print("using reparam")
         batch_size = obs.shape[0]
 
         # Sample from the actor
@@ -296,7 +302,7 @@ class SoftActorCritic(nn.Module):
         q_values = self.critic(obs, action)
 
         # TODO(student): Compute the actor loss
-        loss = torch.mean(q_values)
+        loss = -torch.mean(q_values)
 
         return loss, torch.mean(self.entropy(action_distribution))
 
