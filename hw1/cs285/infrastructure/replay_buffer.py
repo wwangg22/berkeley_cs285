@@ -18,7 +18,7 @@ class ReplayBuffer(object):
         self.terminals = None
 
     def __len__(self):
-        if self.obs:
+        if self.obs.size>0:
             return self.obs.shape[0]
         else:
             return 0
