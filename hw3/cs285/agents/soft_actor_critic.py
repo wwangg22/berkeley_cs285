@@ -197,15 +197,16 @@ class SoftActorCritic(nn.Module):
             # (For double-Q, clip-Q, etc.)
             next_qs = self.q_backup_strategy(next_qs)
             # print(next_qs.shape)
-            # assert next_qs.shape == (
-            #     self.num_critic_networks,
-            #     batch_size,
-            # ), next_qs.shape
-
+            assert next_qs.shape == (
+                self.num_critic_networks,
+                batch_size,
+            ), next_qs.shape
             if self.use_entropy_bonus and self.backup_entropy:
                 # TODO(student): Add entropy bonus to the target values for SAC
                 next_action_entropy = self.entropy(next_action_distribution)
                 next_qs += next_action_entropy
+            
+            # print("mean of qs ", torch.mean(next_qs))
 
             # Compute the target Q-value
             target_values: torch.Tensor = reward + self.discount * (1 - done.float()) * next_qs
@@ -240,7 +241,7 @@ class SoftActorCritic(nn.Module):
         action = action_distribution.rsample()
         log_prob = action_distribution.log_prob(action)
 
-        entropy = -log_prob.mean()
+        entropy = -log_prob.unsqueeze(0)
         # TODO(student): Compute the entropy of the action distribution.
         # Note: Think about whether to use .rsample() or .sample() here...
         return entropy
@@ -253,8 +254,9 @@ class SoftActorCritic(nn.Module):
         action_distribution: torch.distributions.Distribution = self.actor(obs)
 
         with torch.no_grad():
-            # TODO(student): draw num_actor_samples samples from the action distribution for each batch element
             action = action_distribution.sample(sample_shape=(self.num_actor_samples,))
+
+            # TODO(student): draw num_actor_samples samples from the action distribution for each batch element
             assert action.shape == (
                 self.num_actor_samples,
                 batch_size,
@@ -274,16 +276,18 @@ class SoftActorCritic(nn.Module):
 
             # Our best guess of the Q-values is the mean of the ensemble
             q_values = torch.mean(q_values, axis=0)
-            advantage = q_values
-            advantage = advantage.unsqueeze(-1)  # Shape: (self.num_actor_samples, batch_size, 1)
+            # advantage = (q_values - q_values.mean(dim=0, keepdim=True)) / (
+            #             q_values.std(dim=0, keepdim=True) + 1e-8
+            #         )  # Normalize advantages            
+            # advantage = advantage.unsqueeze(-1)  # Shape: (self.num_actor_samples, batch_size, 1)
 
 
         # Do REINFORCE: calculate log-probs and use the Q-values
         # TODO(student)
 
-        log_probs = action_distribution.log_prob(action)
-        weighted_log_prob = -log_probs * advantage 
-        loss = torch.mean(weighted_log_prob)
+        log_probs = action_distribution.log_prob(action).sum(dim=-1, keepdim=True)  # Log-probs summed over action_dim
+        weighted_log_prob = log_probs * advantage.unsqueeze(-1)
+        loss = -torch.mean(weighted_log_prob)
 
         return loss, torch.mean(self.entropy(action_distribution))
 
@@ -322,6 +326,14 @@ class SoftActorCritic(nn.Module):
 
         self.actor_optimizer.zero_grad()
         loss.backward()
+        # total_norm = 0
+        # for p in self.actor.parameters():
+        #     if p.grad is not None:
+        #         param_norm = p.grad.data.norm(2)  # Compute L2 norm of gradients for this parameter
+        #         total_norm += param_norm.item() ** 2  # Accumulate squared norms
+
+        # total_norm = total_norm ** 0.5  # Compute the total L2 norm
+        # print("total norm ", total_norm)
         self.actor_optimizer.step()
 
         return {"actor_loss": loss.item(), "entropy": entropy.item()}
