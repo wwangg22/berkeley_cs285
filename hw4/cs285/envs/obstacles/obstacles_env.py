@@ -86,7 +86,11 @@ class Obstacles(gym.Env):
     #########################################
 
     def _get_obs(self):
-        return np.concatenate([self.current, self.end])
+        # Ensure both current and end are 2D arrays
+        current = self.current[np.newaxis, :] if self.current.ndim == 1 else self.current
+        end = self.end[np.newaxis, :] if self.end.ndim == 1 else self.end
+        
+        return np.concatenate([current, end])
 
     def get_score(self, obs):
         curr_pos = obs[:2]
@@ -207,20 +211,27 @@ class Obstacles(gym.Env):
         return [img]
 
     def is_valid(self, dat):
+        # Ensure dat is 2D array, even if it's a single point
+        if dat.ndim == 1:
+            dat = dat[np.newaxis, :]
+        
+        # Check out of bounds
         oob_mask = np.any(self.oob(dat), axis=1)
-
-        # old way
+        
+        # Define boundary regions
         self.a = self.boundary_min + (self.boundary_max - self.boundary_min) / 3.0
         self.b = self.boundary_min + 2 * (self.boundary_max - self.boundary_min) / 3.0
+        
+        # Create mask for data outside the central region
         data_mask = (
             (dat[:, 0] < self.a)
             | (dat[:, 0] > self.b)
             | (dat[:, 1] < self.a)
             | (dat[:, 1] > self.b)
         )
-
-        #
-        in_obstacle = False
+        
+        # Check for obstacles
+        in_obstacle = np.zeros(dat.shape[0], dtype=bool)
         for obstacle in self.obstacles:
             tl_x = obstacle[0]
             tl_y = obstacle[1]
@@ -230,18 +241,20 @@ class Obstacles(gym.Env):
             bl_y = tl_y - obstacle[3]
             br_x = tr_x
             br_y = bl_y
-
-            if (
-                dat[:, 0] > tl_x
-                and dat[:, 0] < tr_x
-                and dat[:, 1] > bl_y
-                and dat[:, 1] < tl_y
-            ):
-                in_obstacle = True
-                return False
-
-        # not in obstacle, so return whether or not its in bounds
-        return not oob_mask
+            
+            # Create a mask for points inside this specific obstacle
+            obstacle_mask = (
+                (dat[:, 0] > tl_x) & 
+                (dat[:, 0] < tr_x) & 
+                (dat[:, 1] > bl_y) & 
+                (dat[:, 1] < tl_y)
+            )
+            
+            # Update the in_obstacle mask
+            in_obstacle = in_obstacle | obstacle_mask
+        
+        # Return True if the point is not out of bounds and not in any obstacle
+        return not np.any(oob_mask | in_obstacle)
 
     def oob(self, x):
         return (x <= self.boundary_min) | (x >= self.boundary_max)

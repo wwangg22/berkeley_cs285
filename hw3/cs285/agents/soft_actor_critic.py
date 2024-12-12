@@ -276,10 +276,10 @@ class SoftActorCritic(nn.Module):
 
             # Our best guess of the Q-values is the mean of the ensemble
             q_values = torch.mean(q_values, axis=0)
-            # advantage = (q_values - q_values.mean(dim=0, keepdim=True)) / (
-            #             q_values.std(dim=0, keepdim=True) + 1e-8
-            #         )  # Normalize advantages            
-            # advantage = advantage.unsqueeze(-1)  # Shape: (self.num_actor_samples, batch_size, 1)
+            advantage = (q_values - q_values.mean(dim=0, keepdim=True)) / (
+                        q_values.std(dim=0, keepdim=True) + 1e-8
+                    )  # Normalize advantages            
+            advantage = advantage.unsqueeze(-1)  # Shape: (self.num_actor_samples, batch_size, 1)
 
 
         # Do REINFORCE: calculate log-probs and use the Q-values
